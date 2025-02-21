@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Infinite Flat Cosmos Particle Simulation</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            color: white;
+            user-select: none;
+        }
+        label {
+            display: block;
+            margin: 5px 0;
+        }
+        input[type="range"] {
+            width: 200px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="controls">
+        <label>Initial Particles: <span id="particleCountValue">500</span> (Current: <span id="currentCount">500</span>)</label>
+        <input type="range" id="particleCount" min="10" max="1000" value="500">
+        <label>Speed: <span id="maxSpeedValue">2.0</span></label>
+        <input type="range" id="maxSpeed" min="0.1" max="5.0" step="0.1" value="2.0">
+        <label>Size: <span id="sizeValue">1.0</span></label>
+        <input type="range" id="size" min="0.5" max="5.0" step="0.1" value="1.0">
+        <label>Gravity: <span id="gravityValue">0.5</span></label>
+        <input type="range" id="gravity" min="-1.0" max="1.0" step="0.1" value="0.5">
+        <label>Spawn Rate (per sec): <span id="spawnRateValue">5</span></label>
+        <input type="range" id="spawnRate" min="1" max="10" value="5">
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        class Particle {
+            constructor(x, y, baseSize, maxSpeed, mass = 1) {
+                this.x = x;
+                this.y = y;
+                this.mass = mass;
+                this.radius = Math.sqrt(this.mass) * baseSize;
+                this.maxSpeed = maxSpeed;
+                this.vx = (Math.random() - 0.5) * 0.02;
+                this.vy = (Math.random() - 0.5) * 0.02;
+                this.ax = 0;
+                this.ay = 0;
+                this.color = `hsl(${Math.random() * 360}, 80%, 60%)`;
+            }
+
+            applyForce(fx, fy) {
+                this.ax += fx / this.mass;
+                this.ay += fy / this.mass;
+            }
+
+            checkCollision(other) {
+                const dx = this.x - other.x;
+                const dy = this.y - other.y;
+                const distance = Math.hypot(dx, dy);
+                const minDistance = (this.radius + other.radius) * 1.2;
+                return distance < minDistance && this !== other ? other : null;
+            }
+
+            merge(other) {
+                const totalMass = this.mass + other.mass;
+                const newX = (this.x * this.mass + other.x * other.mass) / totalMass;
+                const newY = (this.y * this.mass + other.y * other.mass) / totalMass;
+                const newVx = (this.vx * this.mass + other.vx * other.mass) / totalMass;
+                const newVy = (this.vy * this.mass + other.vy * other.mass) / totalMass;
+
+                const merged = new Particle(newX, newY, baseParticleSize, this.maxSpeed, totalMass);
+                merged.radius = Math.sqrt(totalMass) * baseParticleSize;
+                merged.vx = newVx;
+                merged.vy = newVy;
+                merged.color = this.color;
+                return merged;
+            }
+
+            explode(x, y, totalMass) {
+                const fragments = [];
+                const fragmentMass = 1; // Each fragment has mass 1
+                const fragmentCount = Math.floor(totalMass); // Number of fragments = total mass
+
+                if (fragmentCount < 40) return fragments; // Min totalMass = 40 since both >= 20
+
+                console.log(`Explosion: Total Mass = ${totalMass}, Fragments = ${fragmentCount}`);
+
+                const angleStep = (2 * Math.PI) / fragmentCount; // Evenly spaced angles
+                const explosionSpeed = this.maxSpeed * 10; // High speed for sharp burst
+
+                for (let i = 0; i < fragmentCount; i++) {
+                    const angle = i * angleStep;
+                    const fragment = new Particle(x, y, baseParticleSize, this.maxSpeed, fragmentMass);
+                    fragment.vx = Math.cos(angle) * explosionSpeed;
+                    fragment.vy = Math.sin(angle) * explosionSpeed;
+                    fragment.color = this.color;
+                    fragments.push(fragment);
+                }
+
+                return fragments;
+            }
+
+            update(gravityForce, isVisible) {
+                let fx = 0, fy = 0;
+                if (gravityForce !== 0 && isVisible) {
+                    for (let other of particles) {
+                        if (other !== this) {
+                            const dx = this.x - other.x;
+                            const dy = this.y - other.y;
+                            const distance = Math.max(Math.hypot(dx, dy), 0.1);
+                            if (distance < 200) {
+                                const force = (gravityForce * this.mass * other.mass) / (distance * distance) * 0.05;
+                                const angle = Math.atan2(dy, dx);
+                                fx += Math.cos(angle) * force * -1;
+                                fy += Math.sin(angle) * force * -1;
+                            }
+                        }
+                    }
+                }
+
+                this.applyForce(fx, fy);
+                this.vx += this.ax;
+                this.vy += this.ay;
+
+                const speed = Math.hypot(this.vx, this.vy);
+                if (speed > this.maxSpeed) {
+                    const scale = this.maxSpeed / speed;
+                    this.vx *= scale;
+                    this.vy *= scale;
+                }
+
+                this.x += this.vx;
+                this.y += this.vy;
+                this.ax = 0;
+                this.ay = 0;
+
+                this.radius = Math.sqrt(this.mass) * baseParticleSize;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, Math.max(this.radius, 0.5), 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.closePath();
+            }
+
+            isInView() {
+                return (
+                    this.x >= -50 && this.x <= canvas.width + 50 &&
+                    this.y >= -50 && this.y <= canvas.height + 50
+                );
+            }
+
+            isFarOutOfView() {
+                const farBuffer = 1000;
+                return (
+                    this.x < -farBuffer || this.x > canvas.width + farBuffer ||
+                    this.y < -farBuffer || this.y > canvas.height + farBuffer
+                );
+            }
+        }
+
+        let particleCount = 500; // Initial count only
+        let maxParticleSpeed = 2.0;
+        let baseParticleSize = 1.0;
+        let gravityForce = 0.5;
+        let spawnRate = 5; // Particles per second (1-10)
+        let particles = []; // Visible particles
+        let virtualParticles = []; // Out-of-view particles
+
+        function initParticles() {
+            particles = [];
+            virtualParticles = [];
+            for (let i = 0; i < particleCount; i++) {
+                particles.push(new Particle(
+                    Math.random() * canvas.width,
+                    Math.random() * canvas.height,
+                    baseParticleSize,
+                    maxParticleSpeed
+                ));
+            }
+            document.getElementById('currentCount').textContent = particles.length;
+        }
+        initParticles();
+
+        const controls = {
+            count: document.getElementById('particleCount'),
+            speed: document.getElementById('maxSpeed'),
+            size: document.getElementById('size'),
+            gravity: document.getElementById('gravity'),
+            spawnRate: document.getElementById('spawnRate'),
+            countValue: document.getElementById('particleCountValue'),
+            speedValue: document.getElementById('maxSpeedValue'),
+            sizeValue: document.getElementById('sizeValue'),
+            gravityValue: document.getElementById('gravityValue'),
+            spawnRateValue: document.getElementById('spawnRateValue'),
+            currentCount: document.getElementById('currentCount')
+        };
+
+        controls.count.addEventListener('input', e => {
+            particleCount = parseInt(e.target.value);
+            controls.countValue.textContent = particleCount;
+            initParticles();
+        });
+
+        controls.speed.addEventListener('input', e => {
+            maxParticleSpeed = parseFloat(e.target.value);
+            controls.speedValue.textContent = maxParticleSpeed.toFixed(1);
+            particles.forEach(p => p.maxSpeed = maxParticleSpeed);
+            virtualParticles.forEach(p => p.maxSpeed = maxParticleSpeed);
+        });
+
+        controls.size.addEventListener('input', e => {
+            baseParticleSize = parseFloat(e.target.value);
+            controls.sizeValue.textContent = baseParticleSize.toFixed(1);
+            particles.forEach(p => p.radius = Math.sqrt(p.mass) * baseParticleSize);
+            virtualParticles.forEach(p => p.radius = Math.sqrt(p.mass) * baseParticleSize);
+        });
+
+        controls.gravity.addEventListener('input', e => {
+            gravityForce = parseFloat(e.target.value);
+            controls.gravityValue.textContent = gravityForce.toFixed(1);
+        });
+
+        controls.spawnRate.addEventListener('input', e => {
+            spawnRate = parseInt(e.target.value);
+            controls.spawnRateValue.textContent = spawnRate;
+        });
+
+        function spawnCosmicParticle() {
+            const baseMass = 1; // Cosmic baseline for a flat universe
+            const randomMass = baseMass * (0.5 + Math.random()); // 0.5 to 1.5
+
+            const side = Math.floor(Math.random() * 4);
+            let x, y, vx, vy;
+
+            switch (side) {
+                case 0: // Left
+                    x = -50;
+                    y = Math.random() * canvas.height;
+                    vx = Math.random() * 0.02 + 0.01;
+                    vy = (Math.random() - 0.5) * 0.02;
+                    break;
+                case 1: // Right
+                    x = canvas.width + 50;
+                    y = Math.random() * canvas.height;
+                    vx = -Math.random() * 0.02 - 0.01;
+                    vy = (Math.random() - 0.5) * 0.02;
+                    break;
+                case 2: // Top
+                    x = Math.random() * canvas.width;
+                    y = -50;
+                    vx = (Math.random() - 0.5) * 0.02;
+                    vy = Math.random() * 0.02 + 0.01;
+                    break;
+                case 3: // Bottom
+                    x = Math.random() * canvas.width;
+                    y = canvas.height + 50;
+                    vx = (Math.random() - 0.5) * 0.02;
+                    vy = -Math.random() * 0.02 - 0.01;
+                    break;
+            }
+
+            return new Particle(x, y, baseParticleSize, maxParticleSpeed, randomMass);
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Update visible particles with short-range gravity
+            const currentParticles = [...particles];
+            for (let p of currentParticles) {
+                p.update(gravityForce, true);
+            }
+
+            // Update virtual particles with basic motion
+            for (let p of virtualParticles) {
+                p.update(0, false);
+            }
+
+            // Move particles between visible and virtual lists
+            particles = particles.filter(p => {
+                if (!p.isInView()) {
+                    virtualParticles.push(p);
+                    return false;
+                }
+                return true;
+            });
+
+            virtualParticles = virtualParticles.filter(p => {
+                if (p.isInView()) {
+                    particles.push(p);
+                    return false;
+                }
+                return !p.isFarOutOfView();
+            });
+
+            // Spawn new particles based on slider (1-10 per second, more noticeable)
+            const spawnProbability = spawnRate / 60; // Assuming 60 FPS
+            if (Math.random() < spawnProbability) {
+                for (let i = 0; i < spawnRate; i++) {
+                    particles.push(spawnCosmicParticle());
+                }
+            }
+
+            // Handle collisions: explode or merge
+            let merges = [];
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    const collision = particles[i].checkCollision(particles[j]);
+                    if (collision) {
+                        merges.push([particles[i], collision]);
+                        break;
+                    }
+                }
+            }
+
+            if (merges.length > 0) {
+                for (let [p1, p2] of merges) {
+                    const i1 = particles.indexOf(p1);
+                    const i2 = particles.indexOf(p2);
+                    if (i1 > -1 && i2 > -1) {
+                        particles.splice(Math.max(i1, i2), 1);
+                        particles.splice(Math.min(i1, i2), 1);
+
+                        if (p1.mass >= 20 && p2.mass >= 20) {
+                            // Explode into fragments equal to total mass
+                            const totalMass = p1.mass + p2.mass;
+                            const explosionX = (p1.x + p2.x) / 2;
+                            const explosionY = (p1.y + p2.y) / 2;
+                            const fragments = p1.explode(explosionX, explosionY, totalMass);
+                            particles.push(...fragments);
+                        } else {
+                            // Regular merge
+                            const merged = p1.merge(p2);
+                            particles.push(merged);
+                        }
+                    }
+                }
+            }
+
+            // Fallback: Ensure at least some particles if none are visible
+            if (particles.length === 0) {
+                particles.push(spawnCosmicParticle());
+            }
+
+            // Update current count
+            controls.currentCount.textContent = particles.length;
+
+            // Draw only visible particles
+            for (let p of particles) {
+                p.draw();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+    </script>
+</body>
+</html>
